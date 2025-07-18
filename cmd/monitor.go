@@ -19,16 +19,27 @@ var monitorCmd = &cobra.Command{
 	Short: "Monitor domains for certificate transparency events",
 	Long: `Monitor one or more domains for certificate transparency events.
 	
-This command will start a real-time monitor that watches for new certificates
+This command will start a monitor that watches for new certificates
 issued for the specified domains. You can specify multiple domains and configure
 whether to include subdomains.
+
+Monitoring Modes:
+  --live: Use live streaming (websockets) for real-time monitoring
+  --all-domains: Monitor ALL certificates (not just specified domains)
 
 Examples:
   domain_watcher monitor example.com
   domain_watcher monitor example.com another.com --subdomains
-  domain_watcher monitor example.com --output-path ./certs --output-format table`,
-	Args: cobra.MinimumNArgs(1),
-	Run:  runMonitor,
+  domain_watcher monitor example.com --live --output-path ./certs
+  domain_watcher monitor --all-domains --live`,
+	Args: func(cmd *cobra.Command, args []string) error {
+		allDomains, _ := cmd.Flags().GetBool("all-domains")
+		if allDomains {
+			return nil // No domain args needed for all-domains mode
+		}
+		return cobra.MinimumNArgs(1)(cmd, args)
+	},
+	Run: runMonitor,
 }
 
 func init() {
@@ -37,10 +48,14 @@ func init() {
 	monitorCmd.Flags().Bool("subdomains", true, "Monitor subdomains as well")
 	monitorCmd.Flags().String("output-path", "", "Output directory for certificate data (default: stdout)")
 	monitorCmd.Flags().String("log-file", "", "Log file path for certificate events")
+	monitorCmd.Flags().Bool("live", false, "Use live streaming mode for real-time monitoring")
+	monitorCmd.Flags().Bool("all-domains", false, "Monitor ALL certificates (not just specified domains)")
 
 	viper.BindPFlag("monitor.subdomains", monitorCmd.Flags().Lookup("subdomains"))
 	viper.BindPFlag("monitor.output-path", monitorCmd.Flags().Lookup("output-path"))
 	viper.BindPFlag("monitor.log-file", monitorCmd.Flags().Lookup("log-file"))
+	viper.BindPFlag("monitor.live", monitorCmd.Flags().Lookup("live"))
+	viper.BindPFlag("monitor.all-domains", monitorCmd.Flags().Lookup("all-domains"))
 }
 
 func runMonitor(cmd *cobra.Command, args []string) {
@@ -49,10 +64,18 @@ func runMonitor(cmd *cobra.Command, args []string) {
 	outputPath := viper.GetString("monitor.output-path")
 	outputFormat := viper.GetString("output")
 	logFile := viper.GetString("monitor.log-file")
+	liveMode := viper.GetBool("monitor.live")
+	allDomains := viper.GetBool("monitor.all-domains")
 
 	if viper.GetBool("verbose") {
-		log.Printf("Starting monitor for domains: %s", strings.Join(domains, ", "))
+		if allDomains {
+			log.Printf("Starting monitor for ALL DOMAINS")
+		} else {
+			log.Printf("Starting monitor for domains: %s", strings.Join(domains, ", "))
+		}
 		log.Printf("Include subdomains: %v", includeSubdomains)
+		log.Printf("Live mode: %v", liveMode)
+		log.Printf("All domains mode: %v", allDomains)
 		log.Printf("Output path: %s", outputPath)
 		log.Printf("Output format: %s", outputFormat)
 		if logFile != "" {
@@ -63,9 +86,19 @@ func runMonitor(cmd *cobra.Command, args []string) {
 	// Create monitor
 	monitor := certwatch.NewMonitor()
 
-	// Add domains to monitor
-	for _, domain := range domains {
-		monitor.AddDomain(domain, includeSubdomains)
+	// Configure monitor modes
+	if liveMode {
+		monitor.SetLiveMode(true)
+	}
+	if allDomains {
+		monitor.SetAllDomainsMode(true)
+	}
+
+	// Add domains to monitor (unless in all-domains mode)
+	if !allDomains {
+		for _, domain := range domains {
+			monitor.AddDomain(domain, includeSubdomains)
+		}
 	}
 
 	// Create file handler
@@ -93,7 +126,18 @@ func runMonitor(cmd *cobra.Command, args []string) {
 		}
 	}()
 
-	fmt.Printf("🔍 Monitoring certificate transparency for domains: %s\n", strings.Join(domains, ", "))
+	if allDomains {
+		fmt.Printf("🔍 Monitoring certificate transparency for ALL DOMAINS")
+	} else {
+		fmt.Printf("🔍 Monitoring certificate transparency for domains: %s", strings.Join(domains, ", "))
+	}
+
+	if liveMode {
+		fmt.Printf(" (LIVE mode)")
+	} else {
+		fmt.Printf(" (polling mode)")
+	}
+	fmt.Println()
 	fmt.Println("Press Ctrl+C to stop...")
 
 	// Wait for signal
