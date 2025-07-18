@@ -1,4 +1,23 @@
 services:
+  # domain_watcher:
+  #   build: .
+  #   restart: unless-stopped
+  #   environment:
+  #     DOMAIN_WATCHER_VERBOSE: "true"
+  #     DOMAIN_WATCHER_OUTPUT: "json"
+  #     DOMAIN_WATCHER_MONITOR_DOMAINS: "example.com,google.com"
+  #     DOMAIN_WATCHER_MONITOR_SUBDOMAINS: "true"
+  #     DOMAIN_WATCHER_MONITOR_OUTPUT_PATH: "/app/data"
+  #     DOMAIN_WATCHER_MONITOR_LIVE: "false"
+  #     DOMAIN_WATCHER_MONITOR_ALL_DOMAINS: "false"
+  #     DOMAIN_WATCHER_MONITOR_POLL_INTERVAL: "60s"
+  #   volumes:
+  #     - cert_data:/app/data
+  #     - ./config:/etc/domain_watcher:ro
+  #   command: ["monitor"]
+  #   depends_on:
+  #     - db
+
   db:
     image: timescale/timescaledb:latest-pg16
     restart: unless-stopped
@@ -10,7 +29,8 @@ services:
     ports:
       - "5432:5432"
 
-
 volumes:
   db_data:
+    driver: local
+  cert_data:
     driver: local

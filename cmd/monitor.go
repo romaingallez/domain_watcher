@@ -9,6 +9,7 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -26,18 +27,32 @@ whether to include subdomains.
 Monitoring Modes:
   --live: Use live streaming (websockets) for real-time monitoring
   --all-domains: Monitor ALL certificates (not just specified domains)
+  --poll-interval: Set polling interval (default: 1m). Examples: 30s, 2m, 1h
 
 Examples:
   domain_watcher monitor example.com
   domain_watcher monitor example.com another.com --subdomains
   domain_watcher monitor example.com --live --output-path ./certs
-  domain_watcher monitor --all-domains --live`,
+  domain_watcher monitor --all-domains --live
+  domain_watcher monitor example.com --poll-interval 30s`,
 	Args: func(cmd *cobra.Command, args []string) error {
 		allDomains, _ := cmd.Flags().GetBool("all-domains")
 		if allDomains {
 			return nil // No domain args needed for all-domains mode
 		}
-		return cobra.MinimumNArgs(1)(cmd, args)
+
+		// Check if domains are provided via args, flag, or environment variable
+		if len(args) > 0 {
+			return nil // Domains provided as arguments
+		}
+
+		// Check if domains are provided via environment variable
+		envDomains := viper.GetStringSlice("monitor.domains")
+		if len(envDomains) > 0 {
+			return nil // Domains provided via environment variable
+		}
+
+		return fmt.Errorf("no domains specified. Provide domains as arguments, via --domains flag, or set DOMAIN_WATCHER_MONITOR_DOMAINS environment variable")
 	},
 	Run: runMonitor,
 }
@@ -50,22 +65,57 @@ func init() {
 	monitorCmd.Flags().String("log-file", "", "Log file path for certificate events")
 	monitorCmd.Flags().Bool("live", false, "Use live streaming mode for real-time monitoring")
 	monitorCmd.Flags().Bool("all-domains", false, "Monitor ALL certificates (not just specified domains)")
+	monitorCmd.Flags().Duration("poll-interval", 60*time.Second, "Polling interval for certificate checks (e.g., 30s, 2m, 1h)")
+	monitorCmd.Flags().StringSlice("domains", []string{}, "Domains to monitor (can also be set via DOMAIN_WATCHER_MONITOR_DOMAINS env var)")
 
 	viper.BindPFlag("monitor.subdomains", monitorCmd.Flags().Lookup("subdomains"))
 	viper.BindPFlag("monitor.output-path", monitorCmd.Flags().Lookup("output-path"))
 	viper.BindPFlag("monitor.log-file", monitorCmd.Flags().Lookup("log-file"))
 	viper.BindPFlag("monitor.live", monitorCmd.Flags().Lookup("live"))
 	viper.BindPFlag("monitor.all-domains", monitorCmd.Flags().Lookup("all-domains"))
+	viper.BindPFlag("monitor.poll-interval", monitorCmd.Flags().Lookup("poll-interval"))
+	viper.BindPFlag("monitor.domains", monitorCmd.Flags().Lookup("domains"))
 }
 
 func runMonitor(cmd *cobra.Command, args []string) {
-	domains := args
+	// Get domains from args first, then from environment variable if no args provided
+	var domains []string
+	if len(args) > 0 {
+		domains = args
+	} else {
+		// Try to get domains from environment variable or flag
+		envDomains := viper.GetStringSlice("monitor.domains")
+		if len(envDomains) > 0 {
+			// Check if we have a single string that needs to be split
+			if len(envDomains) == 1 && strings.Contains(envDomains[0], ",") {
+				domains = strings.Split(envDomains[0], ",")
+				// Trim whitespace from each domain
+				for i, domain := range domains {
+					domains[i] = strings.TrimSpace(domain)
+				}
+			} else {
+				domains = envDomains
+			}
+		} else {
+			// Fallback: try to get as a single string and split by comma
+			domainsStr := viper.GetString("monitor.domains")
+			if domainsStr != "" {
+				domains = strings.Split(domainsStr, ",")
+				// Trim whitespace from each domain
+				for i, domain := range domains {
+					domains[i] = strings.TrimSpace(domain)
+				}
+			}
+		}
+	}
+
 	includeSubdomains := viper.GetBool("monitor.subdomains")
 	outputPath := viper.GetString("monitor.output-path")
 	outputFormat := viper.GetString("output")
 	logFile := viper.GetString("monitor.log-file")
 	liveMode := viper.GetBool("monitor.live")
 	allDomains := viper.GetBool("monitor.all-domains")
+	pollInterval := viper.GetDuration("monitor.poll-interval")
 
 	if viper.GetBool("verbose") {
 		if allDomains {
@@ -78,6 +128,9 @@ func runMonitor(cmd *cobra.Command, args []string) {
 		log.Printf("All domains mode: %v", allDomains)
 		log.Printf("Output path: %s", outputPath)
 		log.Printf("Output format: %s", outputFormat)
+		if !liveMode {
+			log.Printf("Polling interval: %v", pollInterval)
+		}
 		if logFile != "" {
 			log.Printf("Log file: %s", logFile)
 		}
@@ -89,6 +142,8 @@ func runMonitor(cmd *cobra.Command, args []string) {
 	// Configure monitor modes
 	if liveMode {
 		monitor.SetLiveMode(true)
+	} else {
+		monitor.SetPollInterval(pollInterval)
 	}
 	if allDomains {
 		monitor.SetAllDomainsMode(true)
@@ -96,6 +151,9 @@ func runMonitor(cmd *cobra.Command, args []string) {
 
 	// Add domains to monitor (unless in all-domains mode)
 	if !allDomains {
+		if len(domains) == 0 {
+			log.Fatal("No domains specified. Provide domains as arguments, via --domains flag, or set DOMAIN_WATCHER_MONITOR_DOMAINS environment variable")
+		}
 		for _, domain := range domains {
 			monitor.AddDomain(domain, includeSubdomains)
 		}

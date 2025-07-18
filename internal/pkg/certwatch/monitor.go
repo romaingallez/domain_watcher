@@ -214,6 +214,10 @@ func (m *Monitor) SetAllDomainsMode(enabled bool) {
 	m.allDomainsMode = enabled
 }
 
+func (m *Monitor) SetPollInterval(interval time.Duration) {
+	m.pollInterval = interval
+}
+
 func (m *Monitor) Start() error {
 	if m.liveMode {
 		return m.startLiveMode()
@@ -228,6 +232,7 @@ func (m *Monitor) startPollingMode() error {
 	}
 
 	log.Printf("Starting certificate transparency monitor in POLLING mode with %d CT logs...", len(m.ctClients))
+	log.Printf("Polling interval: %v", m.pollInterval)
 
 	// Initialize starting points for each CT log
 	for _, logClient := range m.ctClients {
@@ -240,12 +245,18 @@ func (m *Monitor) startPollingMode() error {
 	ticker := time.NewTicker(m.pollInterval)
 	defer ticker.Stop()
 
+	// Log the first poll time
+	nextPoll := time.Now().Add(m.pollInterval)
+	log.Printf("Next polling scheduled for: %s", nextPoll.Format("15:04:05"))
+
 	for {
 		select {
 		case <-m.ctx.Done():
 			log.Println("Monitor stopped")
 			return nil
 		case <-ticker.C:
+			log.Printf("Starting polling cycle at %s", time.Now().Format("15:04:05"))
+
 			// Check each CT log in parallel
 			var wg sync.WaitGroup
 			for _, logClient := range m.ctClients {
@@ -258,6 +269,10 @@ func (m *Monitor) startPollingMode() error {
 				}(logClient)
 			}
 			wg.Wait()
+
+			// Log when the next poll will happen
+			nextPoll := time.Now().Add(m.pollInterval)
+			log.Printf("Polling cycle completed. Next poll scheduled for: %s", nextPoll.Format("15:04:05"))
 		}
 	}
 }
@@ -491,12 +506,11 @@ func (m *Monitor) createCertificateEntry(cert *x509.Certificate, allDomains []st
 		SerialNumber:            cert.SerialNumber.String(),
 	}
 
-	// Separate main domain from subdomains
+	// Collect all certificate domains as subdomains (since matchedDomain is the watched domain)
 	var subdomains []string
 	for _, domain := range allDomains {
-		if domain != matchedDomain && strings.Contains(domain, matchedDomain) {
-			subdomains = append(subdomains, domain)
-		}
+		// Add all certificate domains to subdomains
+		subdomains = append(subdomains, domain)
 	}
 
 	return &models.CertificateEntry{
@@ -681,12 +695,11 @@ func (m *Monitor) createLiveCertificateEntry(certData map[string]interface{}, al
 		SerialNumber:            getString(certData, "serial_number"),
 	}
 
-	// Separate main domain from subdomains
+	// Collect all certificate domains as subdomains (since matchedDomain is the watched domain)
 	var subdomains []string
 	for _, domain := range allDomains {
-		if domain != matchedDomain && strings.Contains(domain, matchedDomain) {
-			subdomains = append(subdomains, domain)
-		}
+		// Add all certificate domains to subdomains
+		subdomains = append(subdomains, domain)
 	}
 
 	return &models.CertificateEntry{

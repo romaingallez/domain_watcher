@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -41,14 +42,18 @@ func initConfig() {
 		viper.SetConfigFile(cfgFile)
 	} else {
 		home, err := os.UserHomeDir()
-		cobra.CheckErr(err)
-
-		viper.AddConfigPath(home)
+		if err == nil {
+			viper.AddConfigPath(home)
+		}
+		viper.AddConfigPath("/etc/domain_watcher/")
+		viper.AddConfigPath(".")
 		viper.SetConfigType("yaml")
 		viper.SetConfigName(".domain_watcher")
 	}
 
+	viper.SetEnvPrefix("DOMAIN_WATCHER")
 	viper.AutomaticEnv()
+	viper.SetEnvKeyReplacer(strings.NewReplacer("-", "_", ".", "_"))
 
 	if err := viper.ReadInConfig(); err == nil {
 		if viper.GetBool("verbose") {
