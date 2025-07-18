@@ -53,6 +53,7 @@ type Monitor struct {
 	httpClient     *http.Client
 	liveMode       bool
 	allDomainsMode bool
+	certstreamURL  string
 }
 
 type CertificateHandler interface {
@@ -60,6 +61,10 @@ type CertificateHandler interface {
 }
 
 func NewMonitor() *Monitor {
+	return NewMonitorWithCertstreamURL("wss://certstream.calidog.io")
+}
+
+func NewMonitorWithCertstreamURL(certstreamURL string) *Monitor {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	httpClient := &http.Client{
@@ -75,6 +80,7 @@ func NewMonitor() *Monitor {
 		ctClients:      make([]*CTLogClient, 0),
 		pollInterval:   time.Minute * 1,
 		httpClient:     httpClient,
+		certstreamURL:  certstreamURL,
 	}
 
 	// Initialize CT clients from certspotter list
@@ -282,7 +288,7 @@ func (m *Monitor) startLiveMode() error {
 
 	// Create the certstream
 	// stream, errChan := certstream.CertStreamEventStream(false)
-	stream, errChan := certstream.CertStreamEventStreamURL(false, "ws://localhost:8080")
+	stream, errChan := certstream.CertStreamEventStreamURL(false, m.certstreamURL)
 
 	for {
 		select {
@@ -297,7 +303,7 @@ func (m *Monitor) startLiveMode() error {
 				log.Printf("Error in live stream: %v", err)
 				// Attempt to reconnect after a brief delay
 				time.Sleep(5 * time.Second)
-				stream, errChan = certstream.CertStreamEventStream(false)
+				stream, errChan = certstream.CertStreamEventStreamURL(false, m.certstreamURL)
 			}
 		}
 	}

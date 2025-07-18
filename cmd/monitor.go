@@ -28,13 +28,15 @@ Monitoring Modes:
   --live: Use live streaming (websockets) for real-time monitoring
   --all-domains: Monitor ALL certificates (not just specified domains)
   --poll-interval: Set polling interval (default: 1m). Examples: 30s, 2m, 1h
+  --certstream-url: Set certstream websocket URL (default: wss://certstream.calidog.io)
 
 Examples:
   domain_watcher monitor example.com
   domain_watcher monitor example.com another.com --subdomains
   domain_watcher monitor example.com --live --output-path ./certs
   domain_watcher monitor --all-domains --live
-  domain_watcher monitor example.com --poll-interval 30s`,
+  domain_watcher monitor example.com --poll-interval 30s
+  domain_watcher monitor example.com --live --certstream-url ws://localhost:8080`,
 	Args: func(cmd *cobra.Command, args []string) error {
 		allDomains, _ := cmd.Flags().GetBool("all-domains")
 		if allDomains {
@@ -67,6 +69,7 @@ func init() {
 	monitorCmd.Flags().Bool("all-domains", false, "Monitor ALL certificates (not just specified domains)")
 	monitorCmd.Flags().Duration("poll-interval", 60*time.Second, "Polling interval for certificate checks (e.g., 30s, 2m, 1h)")
 	monitorCmd.Flags().StringSlice("domains", []string{}, "Domains to monitor (can also be set via DOMAIN_WATCHER_MONITOR_DOMAINS env var)")
+	monitorCmd.Flags().String("certstream-url", "wss://certstream.calidog.io", "Certstream websocket URL (can also be set via DOMAIN_WATCHER_CERTSTREAM_URL env var)")
 
 	viper.BindPFlag("monitor.subdomains", monitorCmd.Flags().Lookup("subdomains"))
 	viper.BindPFlag("monitor.output-path", monitorCmd.Flags().Lookup("output-path"))
@@ -75,6 +78,7 @@ func init() {
 	viper.BindPFlag("monitor.all-domains", monitorCmd.Flags().Lookup("all-domains"))
 	viper.BindPFlag("monitor.poll-interval", monitorCmd.Flags().Lookup("poll-interval"))
 	viper.BindPFlag("monitor.domains", monitorCmd.Flags().Lookup("domains"))
+	viper.BindPFlag("monitor.certstream-url", monitorCmd.Flags().Lookup("certstream-url"))
 }
 
 func runMonitor(cmd *cobra.Command, args []string) {
@@ -116,6 +120,7 @@ func runMonitor(cmd *cobra.Command, args []string) {
 	liveMode := viper.GetBool("monitor.live")
 	allDomains := viper.GetBool("monitor.all-domains")
 	pollInterval := viper.GetDuration("monitor.poll-interval")
+	certstreamURL := viper.GetString("monitor.certstream-url")
 
 	if viper.GetBool("verbose") {
 		if allDomains {
@@ -126,6 +131,9 @@ func runMonitor(cmd *cobra.Command, args []string) {
 		log.Printf("Include subdomains: %v", includeSubdomains)
 		log.Printf("Live mode: %v", liveMode)
 		log.Printf("All domains mode: %v", allDomains)
+		if liveMode {
+			log.Printf("Certstream URL: %s", certstreamURL)
+		}
 		log.Printf("Output path: %s", outputPath)
 		log.Printf("Output format: %s", outputFormat)
 		if !liveMode {
@@ -137,7 +145,7 @@ func runMonitor(cmd *cobra.Command, args []string) {
 	}
 
 	// Create monitor
-	monitor := certwatch.NewMonitor()
+	monitor := certwatch.NewMonitorWithCertstreamURL(certstreamURL)
 
 	// Configure monitor modes
 	if liveMode {
