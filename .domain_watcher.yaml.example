@@ -1,0 +1,10 @@
+verbose: false
+output: "json"
+
+monitor:
+  subdomains: true
+  output-path: ""
+  log-file: ""
+
+history:
+  days: 90
