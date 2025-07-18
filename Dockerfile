@@ -66,5 +66,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD ./domain_watcher list || exit 1
 
 # Default command
-ENTRYPOINT ["./domain_watcher"]
-CMD ["--help"]
+ENTRYPOINT ["./domain_watcher","monitor"]
